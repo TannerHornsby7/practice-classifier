@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  classifier:
+    build: ./classifier
+    volumes:
+      - ./model.pkl:/app/model.pkl:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  producer:
+    build: ./producer
+    volumes:
+      - ./data/stream.csv:/app/stream.csv:ro
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - STREAM_NAME=appointments
+      - DELAY_SECONDS=0.5   # pace of replay — lower = faster stream
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  consumer:
+    build: ./consumer
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CLASSIFIER_URL=http://classifier:8000
+      - STREAM_NAME=appointments
+      - CONSUMER_GROUP=classifiers
+      - CONSUMER_NAME=consumer-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      classifier:
+        condition: service_healthy
